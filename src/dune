@@ -1,5 +1,12 @@
 (library
- (name interp))
+ (name interp)
+ (libraries 
+  llvm 
+  llvm.analysis
+  llvm.executionengine
+  llvm.target
+  llvm_X86
+  llvm.bitwriter))
 
 (menhir
  (modules parser))

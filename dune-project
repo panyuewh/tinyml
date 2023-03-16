@@ -1,11 +1,11 @@
 (lang dune 3.6)
 
-(name coreml)
+(name tinyml)
 
 (generate_opam_files true)
 
 (source
- (github panyuewh/coreml))
+ (github panyuewh/tinyml))
 
 (authors "Yue Pan")
 
@@ -16,7 +16,7 @@
 (documentation https://url/to/documentation)
 
 (package
- (name coreml)
+ (name tinyml)
  (synopsis "A short synopsis")
  (description "A longer description")
  (depends ocaml dune)
