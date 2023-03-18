@@ -18,6 +18,7 @@ rule read =
   | "+" { PLUS }
   | "(" { LPAREN }
   | ")" { RPAREN }
+  | ":" { COLON }
   | "->" { ARROW }
   | "fun" { FUN }
   | "let" { LET }

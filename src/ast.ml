@@ -8,7 +8,7 @@ type bop =
 type expr =
   | Var of string
   | App of expr * expr
-  | Fun of string * expr
+  | Fun of string * string * expr
   | Int of int
   | Bool of bool  
   | Binop of bop * expr * expr
