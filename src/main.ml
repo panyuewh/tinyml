@@ -1,6 +1,6 @@
 open Ast
 open Llvm
-open Llprint 
+(* open Llprint  *)
 
 (** [parse s] parses [s] into an AST. *)
 let parse (s : string) : expr =
@@ -71,32 +71,32 @@ let pair_guard_err = "Guard of fst, snd must have type pair"
     of an [match] does not have type [Left] or [Right]. *)
 let match_guard_err = "Guard of match must have type Left or Right"
 
+let func_not_found_err = "Function not found"
+
 type scope_rule = Lexical | Dynamic
 let scope = Lexical
 
 (** [eval env e] is the [<env, e> ==> v] relation. *)
 let rec codegen_expr (env: llenv) = function
-  | Int i -> print_endline "Int"; const_int i32_t i
-  | Bool b -> if b then true_v else false_v
-  | Var x -> print_endline "Var"; codegen_var env x
+  | Int i -> print_string "Int "; print_endline (string_of_int i); const_int i32_t i
+  | Bool b -> print_string "Bool "; print_endline (string_of_bool b); if b then true_v else false_v
+  | Var x -> print_string "Var "; print_endline x; codegen_var env x
   | App (e1, e2) -> print_endline "App"; codegen_app env e1 e2
-  | Fun (x, t, e) -> print_endline "Fun"; codegen_fun env x t e
+  | Fun (x, t, e) -> print_string "Fun "; print_endline x; codegen_fun env x t e
   | Binop (bop, e1, e2) -> print_endline "Binop"; codegen_bop env bop e1 e2
   | If (e1, e2, e3) -> codegen_if env e1 e2 e3
-  | Let (x, e1, e2) -> print_endline "Let"; codegen_let env x e1 e2
+  | Let (x, e1, e2) -> print_string "Let "; print_endline x; codegen_let env x e1 e2
 
 (** [eval_var env x] is the [v] such that [<env, x> ==> v]. *)
 and codegen_var env x = 
   let v = match Env.find_opt x env with
     | None -> failwith unbound_var_err
     (* Load the value *)
-    | Some vx ->  print_val vx; print_endline ""; 
+    | Some vx -> (*print_val vx; print_endline ""; *)  
       match classify_type (type_of vx) with 
       | TypeKind.Function -> failwith "TODO"
-      | TypeKind.Pointer -> print_type (type_of vx); print_endline "-Pointer-"; vx
-      | _ ->  print_type (type_of vx); print_endline " -Non Pointer-"; (*build_load vx x builder*) vx in
-  print_string (value_name v); print_type (type_of v); print_endline "";
-  print_endline "end codegen_var";
+      | TypeKind.Pointer -> vx
+      | _ ->  vx (*build_load vx x builder*) in
   v
 
 (** [eval_app env e1 e2] is the [v] such that [<env, e1 e2> ==> v]. *)
@@ -107,28 +107,33 @@ and codegen_app env e1 e2 =
     | Lexical -> defenv
     | Dynamic -> env in
   let env_for_body = Env.add x v2 base_env_for_body in *)
-  let callee = codegen_expr env e1 in 
-  (* let callee = lookup_function callee_name mdl in *)
-  print_string "callee: ";
-  print_string (value_name callee);
-  print_type (type_of callee);
-  build_call callee [|v2|] "calltmp" builder
+  let fun_name = codegen_expr env e1 in 
+  match lookup_function (value_name fun_name) mdl with
+  | None -> failwith func_not_found_err 
+  | Some callee ->
+      (* print_string "callee: ";
+      print_string (value_name callee);
+      print_type (type_of callee);
+      print_endline ""; *)
+      build_call callee [|v2|] "calltmp" builder
 
 (** [eval_fun env x t e] is the [v] such that [<env, x t e> ==> v]. *)
 and codegen_fun env x t e = 
-  let pt, ft = match t with
-  | "bool" -> i1_t, function_type i32_t [|i1_t|]
-  | "int" | _ -> i32_t, function_type i32_t [|i32_t|] in
-  let func = declare_function "lambda" ft mdl in
+  let (*pt, *)ft = match t with
+  | "bool" -> (*i1_t, *)function_type i32_t [|i1_t|]
+  | "int" | _ -> (*i32_t, *)function_type i32_t [|i32_t|] in
+  let func = define_function "lambda" ft mdl in
   (* Create a new basic block to start insertion into. *)
-  let bb = append_block ctx "entry" func in
-  (* position_at_end bb builder ; *)
+  (* let bb = append_block ctx "entry" func in *)
+  let bb = entry_block func in
+  (* builder_at_end ctx (entry_block func) |> ignore; *)
+  position_at_end bb builder ;
   (* Add all arguments to the symbol table and create their allocas. *)
-  let builder = builder_at ctx (instr_begin bb) in
+  (* let fbuilder = builder_at ctx (instr_begin bb) in *)
   (* Add all arguments to the symbol table and create their allocas. *)
-  let alloca = build_alloca pt x builder in
-  let _ = build_store (params func).(0) alloca builder in
-  let env' = Env.add x alloca env in 
+  (* let alloca = build_alloca pt x builder in
+  let xp = build_store (params func).(0) alloca builder in *)
+  let env' = Env.add x (params func).(0) env in 
   (* Finish off the function. *)
   let return_val = codegen_expr env' e in
   let _ : llvalue = build_ret return_val builder in
@@ -156,9 +161,7 @@ and codegen_bop env bop e1 e2 =
 and codegen_if env e1 e2 e3 = 
     let cond = codegen_expr env e1 in
     (* Convert condition to a bool by comparing equal to 0.0 *)
-    let cond_val =
-    Llvm.build_icmp Icmp.Eq cond true_v "ifcond" builder
-    in
+    let cond_val = build_icmp Icmp.Eq cond true_v "ifcond" builder in
     (* Grab the first block so that we might later add the conditional branch
     * to it at the end of the function. *)
     let start_bb = insertion_block builder in
@@ -199,20 +202,27 @@ and codegen_if env e1 e2 e3 =
 (** [eval_let env x e1 e2] is the [v] such that
     [<env, let x = e1 in e2> ==> v]. *)
 and codegen_let env x e1 e2 =
-  let func = block_parent (insertion_block builder) in 
+  let bb = insertion_block builder in
+  (* let func = block_parent bb  in  *)
   let v1 = codegen_expr env e1 in 
-  let builder = builder_at ctx (instr_begin (entry_block func)) in
-  print_string "Let v1= ";
+  position_at_end bb builder ;
+  (* let builder = builder_at ctx (instr_begin (entry_block func)) in  *)
+  (* print_string "Let v1= ";
   print_string (value_name v1);
   print_string " : ";
-  print_type (type_of v1);
-  let alloca = build_alloca i32_t x builder in
-  build_store v1 alloca builder |> ignore;
-  print_string "Let x= ";
-  print_string (value_name alloca);
+  print_type (type_of v1); *)
+  let vx = 
+  match classify_type (element_type (type_of v1)) with 
+      | TypeKind.Function -> v1
+      | _ ->  
+          let alloca = build_alloca i32_t x builder in
+          build_store v1 alloca builder
+      in
+  (* print_string "Let x= ";
+  print_string (value_name vx);
   print_string " : ";
-  print_type (type_of alloca);
-  let env' = Env.add x v1 env in 
+  print_type (type_of vx); *)
+  let env' = Env.add x vx env in 
   codegen_expr env' e2 
 
 (** [interp s] interprets [s] by parsing
@@ -221,8 +231,21 @@ and codegen_let env x e1 e2 =
 let interp (s : string) : llvalue =
   s |> parse |> codegen_expr Env.empty
 
-let codegen (s : string) = 
-  let _ = interp s in
-  let _ = build_ret (const_int i32_t 0) builder in
-    dump_module mdl;
-    ()
+let codegen ?(fname="") s  = 
+  let ret = interp s in
+  let printf_ty = var_arg_function_type i32_t [| pointer_type (i8_type ctx) |] in
+  let printf = declare_function "printf" printf_ty mdl in
+   let nounwind = attr_of_repr ctx (AttrRepr.Enum ((enum_attr_kind "nounwind"), 0L)) in  
+  let nocapture = attr_of_repr ctx (AttrRepr.Enum ((enum_attr_kind "nocapture"), 0L)) in  
+  add_function_attr printf nounwind AttrIndex.Function;
+  add_function_attr printf nocapture (AttrIndex.Param 0);
+  let s = build_global_stringptr "=%d\n" "" builder in
+  (* try commenting these two lines and compare the result *)
+  let zero = const_int i32_t 0 in
+  let s = build_in_bounds_gep s [| zero |] "" builder in
+  let _ = build_call printf [| s; ret |] "" builder in
+  build_ret (const_int i32_t 0) builder |> ignore;
+  if (String.length fname) = 0 
+  then (print_endline ""; dump_module mdl)
+  else print_module fname mdl |> ignore; 
+  ()
