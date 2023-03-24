@@ -14,8 +14,8 @@ let print_val lv =
   Printf.printf "Value\n" ;
   Printf.printf "  name %s\n" (value_name lv) ;
   let llty = type_of lv in
-  Printf.printf "  type %s\n" (string_of_lltype llty) ;
-  print_type llty ;
+  Printf.printf "  type %s" (string_of_lltype llty) ;
+  print_type llty; print_endline "";
   ()
 
 let print_fun lv =
